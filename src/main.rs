@@ -8,12 +8,13 @@ pub mod util;
 
 use util::{from_atomic_to_matrix, from_matrix_to_atomic};
 use util::{init_matrix_parallel, init_matrix_sequential};
+use util::consume_fpu_for_a_long_time;
 
 // 矩阵的每一维的长度。较大时更能体现并行的加速效果
 const LENGTH: usize = 4096;
 
 // 迭代轮数，在循环中取代LENGTH，来减少循环的次数.ITEARTION应该小于等于LENGTH
-const ITERATION: usize = 20;
+const ITERATION: usize = 5;
 
 /// 每个元素为f64的二维矩阵
 type Matrix = Array2<f64>;
@@ -34,16 +35,28 @@ fn demo() {
     sequential_calculate(&mut matrix_vj, &matrix_dm, &reduce_ij);
     let run_time_sequential = sys_time.elapsed().unwrap().as_millis();
 
+    println!("sequential run time for demo: {} ms", run_time_sequential);
+
     // 并行计算:行级别的
     let sys_time = SystemTime::now();
     parallel_calculate_low_level(&mut cloned_matrix_vj, &mut matrix_dm, &mut reduce_ij);
     let run_time_parallel_low_level = sys_time.elapsed().unwrap().as_millis();
+
+    println!(
+        "parallel(low level) run time for demo: {} ms",
+        run_time_parallel_low_level
+    );
 
     // 并行计算：更高级别的
     let sys_time = SystemTime::now();
     parallel_calculate_high_level(&mut matrix_vj_with_atomic_cell, &matrix_dm, &reduce_ij);
     let run_time_parallel_high_level = sys_time.elapsed().unwrap().as_millis();
     let cloned_matrix_vj_2 = from_atomic_to_matrix(&matrix_vj_with_atomic_cell);
+
+    println!(
+        "parallel(high level) run time for demo: {} ms",
+        run_time_parallel_high_level
+    );
 
     // 判断计算结果是否相等
     assert_eq!(matrix_vj, cloned_matrix_vj);
@@ -54,16 +67,6 @@ fn demo() {
         .for_each(|(iterm1, iterm2)| {
             assert!((*iterm1 - *iterm2).abs() < 1.0f64);
         });
-
-    println!("sequential run time for demo: {} ms", run_time_sequential);
-    println!(
-        "parallel(low level) run time for demo: {} ms",
-        run_time_parallel_low_level
-    );
-    println!(
-        "parallel(high level) run time for demo: {} ms",
-        run_time_parallel_high_level
-    );
 }
 
 /// 串行计算
@@ -72,6 +75,9 @@ fn sequential_calculate(matrix_vj: &mut Matrix, matrix_dm: &Matrix, reduce_ij: &
         for ic in 0..ITERATION {
             let dm_ij = matrix_dm.iter().nth(ic * LENGTH + jc).unwrap().to_owned()
                 + matrix_dm.iter().nth(jc * LENGTH + ic).unwrap().to_owned();
+            // std::thread::sleep(std::time::Duration::from_millis(1000));
+            consume_fpu_for_a_long_time();
+
             matrix_vj
                 .iter_mut()
                 .zip(reduce_ij.iter())
@@ -90,6 +96,10 @@ fn parallel_calculate_low_level(matrix_vj: &mut Matrix, matrix_dm: &Matrix, redu
         for ic in 0..ITERATION {
             let dm_ij = matrix_dm.iter().nth(ic * LENGTH + jc).unwrap().to_owned()
                 + matrix_dm.iter().nth(jc * LENGTH + ic).unwrap().to_owned();
+            
+            // std::thread::sleep(std::time::Duration::from_millis(1000));
+            consume_fpu_for_a_long_time();
+
             // 以行为单位切分任务,每个iter将会遍历矩阵的行。并且允许并行
             let vj_line_iter = matrix_vj.axis_iter_mut(Axis(0)).into_par_iter();
             // 以行为单位切分任务,每个iter将会遍历矩阵的行。并且不允许并行
@@ -147,7 +157,11 @@ fn parallel_calculate_high_level(
 ) {
     let vj_ptr = ThreadSafeBox(matrix_vj.as_mut_ptr());
     (0..ITERATION).into_iter().into_par_iter().for_each(|jc| {
+        // 第二个into_par_iter并不起作用
         (0..ITERATION).into_iter().into_par_iter().for_each(|ic| {
+            // std::thread::sleep(std::time::Duration::from_millis(1000));
+            consume_fpu_for_a_long_time();
+
             let dm_ij = matrix_dm.iter().nth(ic * LENGTH + jc).unwrap().to_owned()
                 + matrix_dm.iter().nth(jc * LENGTH + ic).unwrap().to_owned();
             let matrix_len = matrix_vj.len();
@@ -197,3 +211,7 @@ fn main() {
     let run_time = get_run_time(demo);
     println!("Total demo time: {} ms", run_time);
 }
+
+// 调度
+// rayon overhead
+// 架构上：浮点计算

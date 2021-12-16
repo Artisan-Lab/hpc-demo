@@ -55,3 +55,18 @@ pub fn from_atomic_to_matrix(matrix: &MatrixWithAtomicCell) -> Matrix {
         });
     unsafe { res.assume_init() }
 }
+
+/// 引入耗时的浮点操作来占用当前线程的fpu
+pub fn consume_fpu_for_a_long_time() {
+    let mut tmp = 1.000000001f64;
+    for _ in 0..1000000000 {
+        tmp = tmp * 1.000000001f64;
+    }
+    // 使用tmp的结果来强制运算，防止被优化
+    consume(tmp);
+}
+
+fn consume(input: f64) {
+    let mut v = Vec::new();
+    v.push(input);
+}
